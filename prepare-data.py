@@ -1,4 +1,6 @@
 import os
+import re
+import string
 MAIN_DIR = "C:/xampp/htdocs/image-annotator/data/"
 
 
@@ -11,17 +13,38 @@ def gather_corpus():
                     corpus += f.read() + "\n"
 
 
-def remove_punctuation(corpus):
-    punctuation = "!\"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"
+def remove_punctuation(text):
+    punctuation = string.punctuation
     punctuation = punctuation.replace("-", "")
     for pct in punctuation:
-        corpus = corpus.replace(pct, " ")
+        text = text.replace(pct, " ")
     for pct in "„”‹›":
-        corpus = corpus.replace(pct, "")
-    corpus = corpus.lower()
-    with open("corpus_no_pcts.txt", "w", encoding="utf8") as f:
-        f.write(corpus)
+        text = text.replace(pct, "")
+    text = text.lower()
+    return text
 
-def 
 
-# remove_punctuation(open("corpus.txt", "r", encoding="utf-8").read())
+def split_sentences(corpus):
+    punctuation = "!.;?."
+    sentences = re.split(punctuation, corpus)
+    return sentences
+
+def remove_empty_words(words):
+    return list(filter(lambda x: x != '', words))
+
+
+def split_words(sentence):
+    sentence = remove_punctuation(sentence)
+    words = sentence.split(" ")
+    words = remove_empty_words(words)
+    return words
+
+
+corpus = open("corpus.txt", "r", encoding="utf-8").read()
+sentences = split_sentences(corpus)
+words = []
+for sentence in sentences:
+    words.extend(split_words(sentence))
+with open("corpus_words.txt", 'w', encoding="utf-8") as f:
+    for word in words:
+        f.write(word+"\n")
