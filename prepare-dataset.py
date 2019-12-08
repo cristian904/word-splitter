@@ -24,7 +24,7 @@ with io.open("dataset.txt", "w", encoding="utf8") as f:
             else:
                 target += 'c'
         
-        f.write(concatenated_words + " " + target + '\n')
+        f.write('|'.join(current_words) + " " +concatenated_words + " " + target + '\n')
 
     
     
