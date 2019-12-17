@@ -1,13 +1,13 @@
 import io
 from random import uniform
 
-with io.open("new_words.txt", "r", encoding="utf8") as f:
+with io.open("./data/new_words.txt", "r", encoding="utf8") as f:
     words = f.readlines()
 
 current_pos = 0
 i=3
-train = io.open("train_set.txt", "w", encoding="utf8")
-test = io.open("test_set.txt", "w", encoding="utf8")
+train = io.open("./data/train_set.txt", "w", encoding="utf8")
+test = io.open("./data/test_set.txt", "w", encoding="utf8")
 while current_pos < len(words) - 1:
     current_words = words[current_pos:current_pos+i]
     current_words = list(map(lambda x: x.strip(), current_words))

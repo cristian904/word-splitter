@@ -205,7 +205,7 @@ input_texts_train = []
 target_texts_train = []
 target_words_train = []
 
-with io.open("train_set.txt", "r", encoding="utf-8") as f:
+with io.open("./data/train_set.txt", "r", encoding="utf-8") as f:
     samples = f.readlines()
     for sample in samples:
         target_word, input_text, target_text = sample.split(" ")
@@ -219,7 +219,7 @@ input_texts_test = []
 target_texts_test = []
 target_words_test = []
 
-with io.open("train_set.txt", "r", encoding="utf-8") as f:
+with io.open("./data/test_set.txt", "r", encoding="utf-8") as f:
     samples = f.readlines()
     for sample in samples:
         target_word, input_text, target_text = sample.split(" ")
@@ -232,6 +232,6 @@ with io.open("train_set.txt", "r", encoding="utf-8") as f:
 word_splitter = WordSplitter(input_texts_train, target_texts_train, target_words_train, input_texts_test, target_texts_test, target_words_test)
 word_splitter.prepare_data()
 word_splitter.train()
-word_splitter.save_model("encoder_model.json", "decoder_model.json", "encoder_weights.h5", "decoder_model_weights.h5")
+word_splitter.save_model("./models/encoder_model.json", "./models/decoder_model.json", "./models/encoder_weights.h5", "./models/decoder_model_weights.h5")
 # word_splitter.load_model("encoder_model.json", "decoder_model.json", "encoder_weights.h5", "decoder_model_weights.h5", "reverse_target_char_index.p")
 # word_splitter.predict_on_test()
