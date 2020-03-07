@@ -8,6 +8,7 @@ current_pos = 0
 i=3
 train = io.open("./data/train_set.txt", "w", encoding="utf8")
 test = io.open("./data/test_set.txt", "w", encoding="utf8")
+val = io.open("./data/validation_set.txt", "w", encoding="utf8")
 while current_pos < len(words) - 1:
     current_words = words[current_pos:current_pos+i]
     current_words = list(map(lambda x: x.strip(), current_words))
@@ -25,11 +26,15 @@ while current_pos < len(words) - 1:
             target += 's'
         else:
             target += 'c'
-    if uniform(0, 1) < 0.8: 
+    prob = uniform(0, 1)
+    if prob < 0.85: 
         train.write('|'.join(current_words) + " " +concatenated_words + " " + target + '\n')
-    else:
+    elif prob >= 0.85 and prob < 0.93:
         test.write('|'.join(current_words) + " " +concatenated_words + " " + target + '\n')
+    else:
+        val.write('|'.join(current_words) + " " +concatenated_words + " " + target + '\n')
 train.close()
 test.close()
+val.close()
     
     

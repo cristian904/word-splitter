@@ -4,19 +4,50 @@ from keras.models import model_from_json
 import numpy as np
 import io
 import pickle
+import uuid
+
+from keras import backend as K
+def weighted_categorical_crossentropy(weights):
+    """
+    A weighted version of keras.objectives.categorical_crossentropy
+    
+    Variables:
+        weights: numpy array of shape (C,) where C is the number of classes
+    
+    Usage:
+        weights = np.array([0.5,2,10]) # Class one at 0.5, class 2 twice the normal weights, class 3 10x.
+        loss = weighted_categorical_crossentropy(weights)
+        model.compile(loss=loss,optimizer='adam')
+    """
+    
+    weights = K.variable(weights)
+        
+    def loss(y_true, y_pred):
+        # scale predictions so that the class probas of each sample sum to 1
+        y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
+        # clip to prevent NaN's and Inf's
+        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
+        # calc
+        loss = y_true * K.log(y_pred) * weights
+        loss = -K.sum(loss, -1)
+        return loss
+    
+    return loss
 
 class WordSplitter:
 
     def __init__(self):
         pass
     
-    def prepare_train_data(self, input_texts_train, target_texts_train, target_words_train, input_texts_test, target_texts_test, target_words_test):
+    def prepare_train_data(self, input_texts_train, target_texts_train, target_words_train, input_texts_val, target_texts_val, target_words_val):
         self.input_texts_train = input_texts_train
         self.target_texts_train = target_texts_train
         self.target_words_train = target_words_train
         self.input_texts_test = input_texts_test
         self.target_texts_test = target_texts_test
         self.target_words_test = target_words_test
+        self.constants = None
+        self.batch_size, self.epochs, self.latent_dim = None, None, None
 
         input_characters = set()
         target_characters = set()
@@ -45,7 +76,7 @@ class WordSplitter:
         
 
         self.encoder_input_data_train, self.decoder_input_data_train, self.decoder_target_data_train = self.__get_network_ready_data(self.input_texts_train, self.target_texts_train)
-        self.encoder_input_data_test, self.decoder_input_data_test, self.decoder_target_data_test = self.__get_network_ready_data(input_texts_test, target_texts_test)
+        self.encoder_input_data_val, self.decoder_input_data_val, self.decoder_target_data_val = self.__get_network_ready_data(input_texts_val, target_texts_val)
 
     def __get_network_ready_data(self, input_texts, target_texts):
         encoder_input_data = np.zeros(
@@ -104,14 +135,18 @@ class WordSplitter:
 
     
     def save_model(self, encoder_model_file, decoder_model_file, encoder_weights_file, decoder_weights_file, constants_file):
-        constants = {"num_encoder_tokens": self.num_encoder_tokens,
+        self.constants = {"num_encoder_tokens": self.num_encoder_tokens,
                     "num_decoder_tokens": self.num_decoder_tokens,
                     "max_encoder_seq_length": self.max_encoder_seq_length,
                     "max_decoder_seq_length": self.max_decoder_seq_length,
                     "reverse_target_char_index": self.reverse_target_char_index,
                     "input_token_index": self.input_token_index,
-                    "target_token_index": self.target_token_index}
-        pickle.dump(constants, open(constants_file, "wb"))
+                    "target_token_index": self.target_token_index,
+                    "batch_size": self.batch_size,
+                    "latent_dim": self.latent_dim,
+                    "epochs": self.epochs,
+                    "weights": self.weights}
+        pickle.dump(self.constants, open(constants_file, "wb"))
         model_json = self.encoder_model.to_json()
         with open(encoder_model_file, "w") as json_file:
             json_file.write(model_json)
@@ -121,31 +156,52 @@ class WordSplitter:
         self.encoder_model.save(encoder_weights_file)
         self.decoder_model.save(decoder_weights_file)
     
-    def train(self, batch_size, latent_dim, epochs):
-
+    def train(self, batch_size, latent_dim, epochs, weights):
+        self.batch_size = batch_size
+        self.latent_dim = latent_dim
+        self.epochs = epochs
+        self.weights = weights
         self.__build_network(latent_dim)
-        
+        weights = np.array(weights)
         # Run training
-        self.model.compile(optimizer='rmsprop', loss='categorical_crossentropy',
+        self.model.compile(optimizer='rmsprop', loss=weighted_categorical_crossentropy(weights),
                     metrics=['accuracy'])
 
 
         self.model.fit([self.encoder_input_data_train, self.decoder_input_data_train], self.decoder_target_data_train,
                 batch_size=batch_size,
                 epochs=epochs,
-                validation_data=([self.encoder_input_data_test, self.decoder_input_data_test], self.decoder_target_data_test))
-
+                validation_data=([self.encoder_input_data_val, self.decoder_input_data_val], self.decoder_target_data_val))
+    
+    def get_word_accuracy(self, df):
+        input_words = list(df['Input words'])
+        decoded_words = list(df['Decoded words'])
+        all_words = 0
+        matches = 0
+        for i in range(len(input_words)):
+            iws = input_words[i].strip().split(" ")
+            dws = decoded_words[i].strip().split(" ")
+            all_words += len(dws)
+            for iw in iws:
+                for dw in dws:
+                    if iw == dw:
+                        matches += 1
+        return matches/all_words
 
     def load_model(self, encoder_model_file, decoder_model_file, encoder_weights_file, decoder_weights_file, constants_file):
 
-        constants = pickle.load(open(constants_file, "rb"))
-        self.num_encoder_tokens = constants["num_encoder_tokens"]
-        self.num_decoder_tokens = constants["num_decoder_tokens"]
-        self.max_encoder_seq_length = constants["max_encoder_seq_length"]
-        self.max_decoder_seq_length = constants["max_decoder_seq_length"]
-        self.reverse_target_char_index = constants["reverse_target_char_index"]
-        self.input_token_index = constants["input_token_index"]
-        self.target_token_index = constants["target_token_index"]
+        self.constants = pickle.load(open(constants_file, "rb"))
+        self.num_encoder_tokens = self.constants["num_encoder_tokens"]
+        self.num_decoder_tokens = self.constants["num_decoder_tokens"]
+        self.max_encoder_seq_length = self.constants["max_encoder_seq_length"]
+        self.max_decoder_seq_length = self.constants["max_decoder_seq_length"]
+        self.reverse_target_char_index = self.constants["reverse_target_char_index"]
+        self.input_token_index = self.constants["input_token_index"]
+        self.target_token_index = self.constants["target_token_index"]
+        self.batch_size = self.constants["batch_size"]
+        self.epochs = self.constants["epochs"]
+        self.latent_dim = self.constants["latent_dim"]
+        self.weights = self.constants["weights"]
         loaded_encoder_json = open(encoder_model_file, "r").read()
         loaded_decoder_json = open(decoder_model_file, "r").read()
         self.encoder_model = model_from_json(loaded_encoder_json)
@@ -224,6 +280,19 @@ class WordSplitter:
         df['Decoded string'] = decoded_strings
         df['Decoded words'] = decoded_wordss
         df.to_excel(prediction_file, index=False)
+        return df
+    
+    def evaluate(self, input_texts_test, target_texts_test, target_words_test, test_log_filename):
+        uid = str(uuid.uuid1().hex)
+        df = self.predict_on_test(input_texts_test, target_texts_test, target_words_test, "./output/" + uid + ".xlsx", False)
+        word_accuracy = self.get_word_accuracy(df)
+        encoder_input_data_test, decoder_input_data_test, decoder_target_data_test = self.__get_network_ready_data(input_texts_test, target_texts_test)
+        scores = self.model.evaluate([encoder_input_data_test, decoder_input_data_test], decoder_target_data_test)
+        df['Input words count'] = df['Input words'].apply(lambda x: len(x.strip().split(" ")))
+        df['Decoded words count'] = df['Decoded words'].apply(lambda x: len(x.strip().split(" ")))
+        print(word_accuracy, scores)
+        with open(test_log_filename, "a") as f:
+            f.write(uid + "\t\t" + str(self.latent_dim) + "\t\t" + str(self.batch_size) + "\t\t" + str(self.epochs) + "\t\t" + str(scores[0]) + "\t\t" + str(scores[1]) + "\t\t" + str(word_accuracy) + "\t\t" + str(weights) + "\n")
 
 
         
@@ -235,10 +304,10 @@ with io.open("./data/train_set.txt", "r", encoding="utf-8") as f:
     samples = f.readlines()
     for sample in samples:
         target_word, input_text, target_text = sample.split(" ")
-        target_text = '\t' + target_text + '\n'
-        input_texts_train.append(input_text)
+        target_text = '\t' + target_text.strip() + '\n'
+        input_texts_train.append(input_text.strip())
         target_texts_train.append(target_text)
-        target_words_train.append(target_word)
+        target_words_train.append(target_word.strip())
 
 
 input_texts_test = []
@@ -249,15 +318,31 @@ with io.open("./data/test_set.txt", "r", encoding="utf-8") as f:
     samples = f.readlines()
     for sample in samples:
         target_word, input_text, target_text = sample.split(" ")
-        target_text = '\t' + target_text + '\n'
-        input_texts_test.append(input_text)
+        target_text = '\t' + target_text.strip() + '\n'
+        input_texts_test.append(input_text.strip())
         target_texts_test.append(target_text)
-        target_words_test.append(target_word)
+        target_words_test.append(target_word.strip())
 
+input_texts_val = []
+target_texts_val = []
+target_words_val = []
 
-word_splitter = WordSplitter()
-# word_splitter.prepare_train_data(input_texts_train, target_texts_train, target_words_train, input_texts_test, target_texts_test, target_words_test)
-# word_splitter.train(batch_size=1000, latent_dim=256, epochs=1)
-# word_splitter.save_model("./models/encoder_model.json", "./models/decoder_model.json", "./models/encoder_weights.h5", "./models/decoder_model_weights.h5", "./models/constants.p")
-word_splitter.load_model("./models/encoder_model.json", "./models/decoder_model.json", "./models/encoder_weights.h5", "./models/decoder_model_weights.h5", "./models/constants.p")
-word_splitter.predict_on_test(input_texts_test, target_texts_test, target_words_test, "./output/test_set_predictions.xlsx", False)
+with io.open("./data/validation_set.txt", "r", encoding="utf-8") as f:
+    samples = f.readlines()
+    for sample in samples:
+        target_word, input_text, target_text = sample.split(" ")
+        target_text = '\t' + target_text.strip() + '\n'
+        input_texts_val.append(input_text.strip())
+        target_texts_val.append(target_text)
+        target_words_val.append(target_word.strip())
+
+for laten_dim in [128, 256]:
+    for batch_size in [1000]:
+        for epochs in [100]:
+            for weights in [[1, 1, 1, 2, 1, 2, 1], [1, 1, 1, 3, 1, 3, 1], [1, 1, 1.5, 2, 1, 2, 1]]:
+                word_splitter = WordSplitter()
+                word_splitter.prepare_train_data(input_texts_train, target_texts_train, target_words_train, input_texts_val, target_texts_val, target_words_val)
+                word_splitter.train(batch_size=batch_size, latent_dim=laten_dim, epochs=epochs, weights=weights)
+                word_splitter.save_model("./models/encoder_model.json", "./models/decoder_model.json", "./models/encoder_weights.h5", "./models/decoder_model_weights.h5", "./models/constants.p")
+                word_splitter.load_model("./models/encoder_model.json", "./models/decoder_model.json", "./models/encoder_weights.h5", "./models/decoder_model_weights.h5", "./models/constants.p")
+                word_splitter.evaluate(input_texts_test, target_texts_test, target_words_test, "test_log.txt")
